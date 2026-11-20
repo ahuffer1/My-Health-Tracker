@@ -1,480 +1,1107 @@
 
-:root {
-  --background: #f8f7f4;
-  --surface: #ffffff;
-  --primary: #54796d;
-  --primary-dark: #3e6256;
-  --accent: #dcebe4;
-  --text: #26352f;
-  --muted: #77847e;
-  --border: #e5e9e5;
-  --danger: #b45e5e;
-  --shadow: 0 4px 18px rgba(40, 60, 50, 0.06);
-}
+const STORAGE_KEY = "myHealthTracker";
 
-* {
-  box-sizing: border-box;
-}
+const defaultData = {
+  goals: {
+    calories: 1500,
+    protein: 120,
+    water: 80,
+    startingWeight: 150,
+    goalWeight: 130,
+    fastingStart: "19:00",
+    fastingEnd: "11:00"
+  },
+  foods: [],
+  exercises: [],
+  water: [],
+  weights: [],
+  savedFoods: []
+};
 
-html {
-  scroll-behavior: smooth;
-}
+let data = loadData();
+let foodScanner = null;
+let scannerRunning = false;
 
-body {
-  margin: 0;
-  padding: 0 0 calc(90px + env(safe-area-inset-bottom));
-  background: var(--background);
-  color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-size: 16px;
-  line-height: 1.5;
-}
+// ------------------------------
+// STORAGE
+// ------------------------------
 
-button,
-input,
-select {
-  font: inherit;
-}
+function loadData() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
 
-button {
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
+    if (!saved) {
+      return JSON.parse(JSON.stringify(defaultData));
+    }
 
-.app-header {
-  background: var(--primary);
-  color: white;
-  padding: 30px 22px 26px;
-  padding-top: calc(30px + env(safe-area-inset-top));
-  border-radius: 0 0 24px 24px;
-}
+    const parsed = JSON.parse(saved);
 
-.app-header h1 {
-  margin: 4px 0;
-  font-size: 27px;
-  font-weight: 750;
-  letter-spacing: -0.7px;
-}
-
-.app-header p {
-  margin: 4px 0 0;
-  color: rgba(255, 255, 255, 0.85);
-}
-
-.eyebrow {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 1.6px;
-}
-
-main {
-  width: 100%;
-  max-width: 680px;
-  margin: 0 auto;
-  padding: 20px 16px;
-}
-
-.screen {
-  display: none;
-  animation: fadeIn 0.2s ease;
-}
-
-.screen.active {
-  display: block;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(5px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
+    return {
+      ...JSON.parse(JSON.stringify(defaultData)),
+      ...parsed,
+      goals: {
+        ...defaultData.goals,
+        ...(parsed.goals || {})
+      },
+      foods: parsed.foods || [],
+      exercises: parsed.exercises || [],
+      water: parsed.water || [],
+      weights: parsed.weights || [],
+      savedFoods: parsed.savedFoods || []
+    };
+  } catch (error) {
+    console.error("Could not load saved data:", error);
+    return JSON.parse(JSON.stringify(defaultData));
   }
 }
 
-h2 {
-  margin: 8px 0 18px;
-  font-size: 23px;
-  letter-spacing: -0.4px;
+function saveData() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
 
-h3 {
-  margin: 0 0 12px;
-  font-size: 17px;
-  font-weight: 700;
+function makeId() {
+  return Date.now().toString(36) +
+    Math.random().toString(36).slice(2, 8);
 }
 
-p {
-  margin-top: 6px;
-  margin-bottom: 10px;
+function today() {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
 }
 
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  padding: 19px;
-  margin-bottom: 16px;
-  box-shadow: var(--shadow);
+function numberValue(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
 }
 
-.dashboard-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
+function escapeHTML(value) {
+  return String(value ?? "").replace(/[&<>"']/g, character => {
+    const replacements = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;"
+    };
+
+    return replacements[character];
+  });
 }
 
-.dashboard-grid .card {
-  margin: 0;
-  padding: 16px;
-  min-width: 0;
+function formatDate(dateString) {
+  if (!dateString) return "";
+
+  const date = new Date(dateString + "T12:00:00");
+
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  });
 }
 
-.dashboard-grid h3 {
-  font-size: 14px;
+// ------------------------------
+// DAILY TOTALS
+// ------------------------------
+
+function getDailyTotals(date = today()) {
+  const foods = data.foods.filter(food => food.date === date);
+  const exercises = data.exercises.filter(item => item.date === date);
+  const water = data.water.filter(item => item.date === date);
+
+  return {
+    calories: foods.reduce(
+      (total, food) => total + numberValue(food.calories), 0
+    ),
+    protein: foods.reduce(
+      (total, food) => total + numberValue(food.protein), 0
+    ),
+    carbs: foods.reduce(
+      (total, food) => total + numberValue(food.carbs), 0
+    ),
+    fat: foods.reduce(
+      (total, food) => total + numberValue(food.fat), 0
+    ),
+    exercise: exercises.reduce(
+      (total, item) => total + numberValue(item.minutes), 0
+    ),
+    burned: exercises.reduce(
+      (total, item) => total + numberValue(item.burned), 0
+    ),
+    water: water.reduce(
+      (total, item) => total + numberValue(item.amount), 0
+    )
+  };
 }
 
-.large-number {
-  font-size: 27px;
-  font-weight: 750;
-  letter-spacing: -0.8px;
-  margin: 8px 0;
-}
-
-.progress-track {
-  height: 9px;
-  background: #edf0ed;
-  border-radius: 20px;
-  overflow: hidden;
-  margin: 12px 0 7px;
-}
-
-.progress-fill {
-  width: 0;
-  height: 100%;
-  background: var(--primary);
-  border-radius: inherit;
-  transition: width 0.3s ease;
-}
-
-form {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-}
-
-label {
-  font-size: 13px;
-  font-weight: 650;
-  margin-top: 5px;
-}
-
-input,
-select {
-  width: 100%;
-  min-height: 47px;
-  border: 1px solid var(--border);
-  border-radius: 11px;
-  background: #fff;
-  padding: 11px 13px;
-  color: var(--text);
-  outline: none;
-  appearance: none;
-  -webkit-appearance: none;
-}
-
-input:focus,
-select:focus {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(84, 121, 109, 0.12);
-}
-
-input::placeholder {
-  color: #a0aaa4;
-}
-
-form button,
-button[type="submit"],
-.scanner-start {
-  min-height: 49px;
-  padding: 12px 17px;
-  background: var(--primary);
-  color: white;
-  border: 0;
-  border-radius: 12px;
-  font-weight: 700;
-  margin-top: 9px;
-  transition: background 0.2s ease, transform 0.1s ease;
-}
-
-form button:active,
-.scanner-start:active {
-  transform: scale(0.98);
-  background: var(--primary-dark);
-}
-
-button:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-/* BARCODE SCANNER */
-
-.scanner-card {
-  background: #f0f6f2;
-  border: 1px solid #dce9df;
-}
-
-.scanner-card h3 {
-  font-size: 19px;
-}
-
-.scanner-card > p {
-  color: var(--muted);
-  font-size: 14px;
-}
-
-#reader {
-  width: 100%;
-  margin: 16px auto 10px;
-}
-
-.scanner-start {
-  display: block;
-  width: 100%;
-  min-height: 54px;
-  font-size: 16px;
-  background: var(--primary);
-  border-radius: 14px;
-}
-
-#barcodeCamera {
-  width: 100%;
-  overflow: hidden;
-  border-radius: 14px;
-  background: #17231e;
-  margin-top: 12px;
-}
-
-#barcodeCamera video {
-  width: 100%;
-  max-height: 340px;
-  object-fit: cover;
-  border-radius: 14px;
-}
-
-#barcodeCamera canvas {
-  max-width: 100%;
-}
-
-#scanStatus {
-  background: #ffffff;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 11px 13px;
-  color: var(--primary-dark);
-  font-size: 13px;
-  font-weight: 600;
-  min-height: 42px;
-}
-
-.small-note {
-  font-size: 11px !important;
-  color: var(--muted);
-  line-height: 1.5;
-}
-
-/* FOOD, EXERCISE AND WATER ENTRIES */
-
-.meal-group {
-  margin-top: 17px;
-}
-
-.meal-group h3 {
-  color: var(--primary-dark);
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border);
-}
-
-.entry {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 13px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.entry:last-child {
-  border-bottom: 0;
-}
-
-.entry-info {
-  min-width: 0;
-  flex: 1;
-}
-
-.entry-info strong {
-  display: block;
-  font-size: 14px;
-  overflow-wrap: anywhere;
-}
-
-.entry-info small {
-  display: block;
-  color: var(--muted);
-  font-size: 12px;
-  margin-top: 3px;
-}
-
-.entry-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.entry-actions button {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: white;
-  color: var(--primary-dark);
-  font-size: 12px;
-  font-weight: 650;
-  padding: 7px 10px;
-}
-
-.entry-actions button:last-child {
-  color: var(--danger);
-}
-
-.empty-state {
-  color: var(--muted);
-  text-align: center;
-  padding: 18px 8px;
-  font-size: 14px;
-}
-
-/* WATER BUTTONS */
-
-.water-buttons {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  margin: 15px 0 22px;
-}
-
-.water-buttons button {
-  min-height: 48px;
-  border: 1px solid #d5e5dd;
-  border-radius: 11px;
-  background: var(--accent);
-  color: var(--primary-dark);
-  font-weight: 750;
-  font-size: 14px;
-}
-
-/* PROGRESS */
-
-.progress-card {
-  background: white;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 18px;
-  margin-bottom: 14px;
-  box-shadow: var(--shadow);
-}
-
-.progress-card h3 {
-  color: var(--primary-dark);
-}
-
-.progress-card p {
-  font-size: 14px;
-  color: var(--muted);
-}
-
-.progress-card strong {
-  color: var(--text);
-}
-
-/* BOTTOM NAVIGATION */
-
-.bottom-nav {
-  position: fixed;
-  z-index: 100;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  display: flex;
-  justify-content: space-around;
-  align-items: center;
-  padding: 8px 3px calc(8px + env(safe-area-inset-bottom));
-  background: rgba(255, 255, 255, 0.97);
-  border-top: 1px solid var(--border);
-  box-shadow: 0 -5px 18px rgba(40, 60, 50, 0.06);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-.bottom-nav button {
-  flex: 1;
-  min-width: 0;
-  min-height: 53px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--muted);
-  padding: 5px 1px;
-}
-
-.bottom-nav button span {
-  font-size: 21px;
-  line-height: 1.2;
-}
-
-.bottom-nav button small {
-  font-size: 10px;
-  font-weight: 650;
-}
-
-.bottom-nav button.active {
-  color: var(--primary-dark);
-  background: var(--accent);
-}
-
-@media (min-width: 600px) {
-  main {
-    padding: 26px 22px;
+function getLatestWeight() {
+  if (!data.weights.length) {
+    return numberValue(data.goals.startingWeight);
   }
 
-  .dashboard-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  const sorted = [...data.weights].sort(
+    (a, b) => b.date.localeCompare(a.date)
+  );
+
+  return numberValue(sorted[0].weight);
+}
+
+function getFastingStatus() {
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+  const startParts = data.goals.fastingStart.split(":");
+  const endParts = data.goals.fastingEnd.split(":");
+
+  const start = Number(startParts[0]) * 60 + Number(startParts[1]);
+  const end = Number(endParts[0]) * 60 + Number(endParts[1]);
+
+  const fasting = start > end
+    ? currentMinutes >= start || currentMinutes < end
+    : currentMinutes >= start && currentMinutes < end;
+
+  return fasting
+    ? "Fasting window"
+    : "Eating window";
+}
+
+// ------------------------------
+// DASHBOARD
+// ------------------------------
+
+function renderDashboard() {
+  const container = document.getElementById("dashboard");
+
+  if (!container) return;
+
+  const totals = getDailyTotals();
+  const weight = getLatestWeight();
+
+  const calorieGoal = numberValue(data.goals.calories);
+  const proteinGoal = numberValue(data.goals.protein);
+  const waterGoal = numberValue(data.goals.water);
+
+  const caloriePercent = calorieGoal
+    ? Math.min(100, totals.calories / calorieGoal * 100)
+    : 0;
+
+  const proteinPercent = proteinGoal
+    ? Math.min(100, totals.protein / proteinGoal * 100)
+    : 0;
+
+  const waterPercent = waterGoal
+    ? Math.min(100, totals.water / waterGoal * 100)
+    : 0;
+
+  container.innerHTML = `
+    <div class="dashboard-grid">
+
+      <div class="card">
+        <h3>Calories</h3>
+        <p class="big-number">${Math.round(totals.calories)}</p>
+        <p>of ${calorieGoal} kcal</p>
+        <div class="progress-track">
+          <div class="progress-fill"
+            style="width:${caloriePercent}%"></div>
+        </div>
+        <small>${Math.max(0, calorieGoal - totals.calories).toFixed(0)} remaining</small>
+      </div>
+
+      <div class="card">
+        <h3>Protein</h3>
+        <p class="big-number">${totals.protein.toFixed(1)} g</p>
+        <p>Goal: ${proteinGoal} g</p>
+        <div class="progress-track">
+          <div class="progress-fill"
+            style="width:${proteinPercent}%"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Water</h3>
+        <p class="big-number">${totals.water} oz</p>
+        <p>Goal: ${waterGoal} oz</p>
+        <div class="progress-track">
+          <div class="progress-fill"
+            style="width:${waterPercent}%"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Weight</h3>
+        <p class="big-number">${weight.toFixed(1)} lb</p>
+        <p>Goal: ${data.goals.goalWeight} lb</p>
+      </div>
+
+      <div class="card">
+        <h3>Exercise</h3>
+        <p class="big-number">${totals.exercise} min</p>
+        <p>${totals.burned} estimated calories burned</p>
+      </div>
+
+      <div class="card">
+        <h3>Fasting</h3>
+        <p class="big-number">${getFastingStatus()}</p>
+        <p>${data.goals.fastingEnd}–${data.goals.fastingStart}</p>
+      </div>
+
+    </div>
+  `;
+}
+
+// ------------------------------
+// NUTRITION
+// ------------------------------
+
+function renderFoods() {
+  const container = document.getElementById("foodList");
+
+  if (!container) return;
+
+  const foods = data.foods
+    .filter(food => food.date === today())
+    .sort((a, b) => b.createdAt - a.createdAt);
+
+  if (!foods.length) {
+    container.innerHTML = "<p>No food entries yet today.</p>";
+    return;
   }
 
-  .entry-actions {
-    flex-direction: row;
+  const meals = ["Breakfast", "Lunch", "Dinner", "Snacks"];
+
+  container.innerHTML = meals.map(meal => {
+    const mealFoods = foods.filter(food => food.meal === meal);
+
+    if (!mealFoods.length) return "";
+
+    return `
+      <div class="meal-group">
+        <h3>${meal}</h3>
+
+        ${mealFoods.map(food => `
+          <div class="entry">
+            <div>
+              <strong>${escapeHTML(food.name)}</strong>
+              <p>${escapeHTML(food.brand || "")}</p>
+              <small>${escapeHTML(food.serving || "")}</small>
+              <p>
+                ${food.calories} cal ·
+                ${food.protein}g protein ·
+                ${food.carbs}g carbs ·
+                ${food.fat}g fat
+              </p>
+            </div>
+
+            <div class="entry-actions">
+              <button type="button"
+                onclick="Tracker.editFood('${food.id}')">Edit</button>
+              <button type="button"
+                onclick="Tracker.deleteFood('${food.id}')">Delete</button>
+            </div>
+          </div>
+        `).join("")}
+
+      </div>
+    `;
+  }).join("");
+}
+
+function addFood(event) {
+  event.preventDefault();
+
+  const food = {
+    id: makeId(),
+    date: today(),
+    createdAt: Date.now(),
+    name: document.getElementById("foodName").value.trim(),
+    brand: document.getElementById("foodBrand").value.trim(),
+    meal: document.getElementById("foodMeal").value,
+    serving: document.getElementById("foodServing").value.trim(),
+    calories: numberValue(document.getElementById("foodCalories").value),
+    protein: numberValue(document.getElementById("foodProtein").value),
+    carbs: numberValue(document.getElementById("foodCarbs").value),
+    fat: numberValue(document.getElementById("foodFat").value)
+  };
+
+  if (!food.name) {
+    alert("Please enter a food name.");
+    return;
+  }
+
+  data.foods.push(food);
+  saveData();
+
+  event.target.reset();
+  render();
+}
+
+function editFood(id) {
+  const food = data.foods.find(item => item.id === id);
+
+  if (!food) return;
+
+  const name = prompt("Food name:", food.name);
+  if (name === null) return;
+
+  const calories = prompt("Calories:", food.calories);
+  if (calories === null) return;
+
+  const protein = prompt("Protein (g):", food.protein);
+  if (protein === null) return;
+
+  const carbs = prompt("Carbs (g):", food.carbs);
+  if (carbs === null) return;
+
+  const fat = prompt("Fat (g):", food.fat);
+  if (fat === null) return;
+
+  food.name = name.trim() || food.name;
+  food.calories = numberValue(calories);
+  food.protein = numberValue(protein);
+  food.carbs = numberValue(carbs);
+  food.fat = numberValue(fat);
+
+  saveData();
+  render();
+}
+
+function deleteFood(id) {
+  if (!confirm("Delete this food entry?")) return;
+
+  data.foods = data.foods.filter(item => item.id !== id);
+
+  saveData();
+  render();
+}
+
+// ------------------------------
+// BARCODE LOOKUP
+// ------------------------------
+
+async function lookupFoodBarcode(barcode) {
+  setScannerStatus("Looking up product nutrition...");
+
+  try {
+    const url =
+      `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json?fields=product_name,brands,quantity,serving_size,nutriments`;
+
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      throw new Error("Product lookup failed.");
+    }
+
+    const result = await response.json();
+
+    if (result.status !== 1 || !result.product) {
+      setScannerStatus(
+        "Product not found. You can enter the nutrition information manually."
+      );
+      return;
+    }
+
+    const product = result.product;
+    const nutrition = product.nutriments || {};
+
+    const servingSize = product.serving_size || "";
+
+    const hasServingValues =
+      nutrition["energy-kcal_serving"] !== undefined ||
+      nutrition.proteins_serving !== undefined;
+
+    const calories = hasServingValues
+      ? nutrition["energy-kcal_serving"]
+      : nutrition["energy-kcal_100g"];
+
+    const protein = hasServingValues
+      ? nutrition.proteins_serving
+      : nutrition.proteins_100g;
+
+    const carbs = hasServingValues
+      ? nutrition.carbohydrates_serving
+      : nutrition.carbohydrates_100g;
+
+    const fat = hasServingValues
+      ? nutrition.fat_serving
+      : nutrition.fat_100g;
+
+    document.getElementById("foodName").value =
+      product.product_name || "";
+
+    document.getElementById("foodBrand").value =
+      product.brands || "";
+
+    document.getElementById("foodServing").value =
+      servingSize || (
+        hasServingValues
+          ? product.quantity || ""
+          : "100 g (database values per 100 g)"
+      );
+
+    document.getElementById("foodCalories").value =
+      calories !== undefined ? Math.round(calories) : "";
+
+    document.getElementById("foodProtein").value =
+      protein !== undefined ? Number(protein).toFixed(1) : "";
+
+    document.getElementById("foodCarbs").value =
+      carbs !== undefined ? Number(carbs).toFixed(1) : "";
+
+    document.getElementById("foodFat").value =
+      fat !== undefined ? Number(fat).toFixed(1) : "";
+
+    setScannerStatus(
+      "Product found! Check the serving size and nutrition values against the package before saving."
+    );
+
+  } catch (error) {
+    console.error("Barcode lookup error:", error);
+
+    setScannerStatus(
+      "Could not retrieve product information. Please try again or enter it manually."
+    );
   }
 }
 
-@media (max-width: 360px) {
-  .bottom-nav button small {
-    font-size: 9px;
-  }
+// ------------------------------
+// BARCODE CAMERA
+// ------------------------------
 
-  .dashboard-grid .card {
-    padding: 12px;
-  }
+function setScannerStatus(message) {
+  const status = document.getElementById("scanStatus");
 
-  .large-number {
-    font-size: 23px;
+  if (status) {
+    status.textContent = message;
   }
 }
+
+async function stopFoodScanner() {
+  if (!foodScanner) {
+    scannerRunning = false;
+    return;
+  }
+
+  try {
+    if (scannerRunning) {
+      await foodScanner.stop();
+    }
+
+    await foodScanner.clear();
+
+  } catch (error) {
+    console.warn("Scanner stop message:", error);
+
+  } finally {
+    scannerRunning = false;
+    foodScanner = null;
+  }
+}
+
+async function startFoodScanner() {
+  const reader = document.getElementById("reader");
+
+  if (!reader) return;
+
+  if (!window.isSecureContext) {
+    setScannerStatus(
+      "Camera scanning requires the secure HTTPS version of your GitHub Pages app."
+    );
+    return;
+  }
+
+  if (typeof Html5Qrcode === "undefined") {
+    setScannerStatus(
+      "Scanner library did not load. Check your internet connection and refresh the app."
+    );
+    return;
+  }
+
+  if (scannerRunning) return;
+
+  const startButton = document.getElementById("startScanner");
+
+  if (startButton) {
+    startButton.disabled = true;
+  }
+
+  setScannerStatus(
+    "Starting camera. Please allow camera access if asked."
+  );
+
+  try {
+    foodScanner = new Html5Qrcode("barcodeCamera");
+
+    await foodScanner.start(
+      { facingMode: "environment" },
+      {
+        fps: 10,
+        qrbox: { width: 260, height: 150 },
+        aspectRatio: 1.5
+      },
+
+      async barcode => {
+        if (!scannerRunning) return;
+
+        setScannerStatus(
+          `Barcode scanned: ${barcode}. Looking up product...`
+        );
+
+        await stopFoodScanner();
+
+        await lookupFoodBarcode(barcode);
+
+        const button = document.getElementById("startScanner");
+
+        if (button) {
+          button.disabled = false;
+        }
+      },
+
+      () => {
+        // Ignore normal camera frames without a detected barcode.
+      }
+    );
+
+    scannerRunning = true;
+
+    setScannerStatus(
+      "Point your camera at the product barcode."
+    );
+
+  } catch (error) {
+    console.error("Camera error:", error);
+
+    foodScanner = null;
+    scannerRunning = false;
+
+    setScannerStatus(
+      "Camera could not start. Check Safari camera permissions and make sure you opened the HTTPS app."
+    );
+
+    if (startButton) {
+      startButton.disabled = false;
+    }
+  }
+}
+
+function initializeFoodScanner() {
+  const reader = document.getElementById("reader");
+
+  if (!reader) return;
+
+  reader.innerHTML = `
+    <button
+      type="button"
+      id="startScanner"
+      class="scanner-start"
+    >
+      Scan Food Barcode
+    </button>
+
+    <div id="barcodeCamera"></div>
+  `;
+
+  document
+    .getElementById("startScanner")
+    .addEventListener("click", startFoodScanner);
+}
+
+// ------------------------------
+// EXERCISE
+// ------------------------------
+
+function renderExercises() {
+  const container = document.getElementById("exerciseList");
+
+  if (!container) return;
+
+  const exercises = data.exercises
+    .filter(item => item.date === today())
+    .sort((a, b) => b.createdAt - a.createdAt);
+
+  if (!exercises.length) {
+    container.innerHTML = "<p>No exercise entries yet today.</p>";
+    return;
+  }
+
+  container.innerHTML = exercises.map(item => `
+    <div class="entry">
+      <div>
+        <strong>${escapeHTML(item.name)}</strong>
+        <p>${escapeHTML(item.type || "")}</p>
+        <p>
+          ${item.minutes} minutes ·
+          ${item.burned} estimated calories burned
+        </p>
+        ${
+          item.weight || item.sets || item.reps
+            ? `<small>
+                Weight: ${item.weight || 0} lb ·
+                Sets: ${item.sets || 0} ·
+                Reps: ${item.reps || 0}
+              </small>`
+            : ""
+        }
+      </div>
+
+      <div class="entry-actions">
+        <button type="button"
+          onclick="Tracker.editExercise('${item.id}')">Edit</button>
+        <button type="button"
+          onclick="Tracker.deleteExercise('${item.id}')">Delete</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+function addExercise(event) {
+  event.preventDefault();
+
+  const exercise = {
+    id: makeId(),
+    date: today(),
+    createdAt: Date.now(),
+    name: document.getElementById("exerciseName").value.trim(),
+    type: document.getElementById("exerciseType").value,
+    minutes: numberValue(document.getElementById("exerciseMinutes").value),
+    burned: numberValue(document.getElementById("exerciseBurned").value),
+    weight: numberValue(document.getElementById("exerciseWeight").value),
+    sets: numberValue(document.getElementById("exerciseSets").value),
+    reps: numberValue(document.getElementById("exerciseReps").value)
+  };
+
+  if (!exercise.name) {
+    alert("Please enter an exercise name.");
+    return;
+  }
+
+  data.exercises.push(exercise);
+  saveData();
+
+  event.target.reset();
+  render();
+}
+
+function editExercise(id) {
+  const item = data.exercises.find(entry => entry.id === id);
+
+  if (!item) return;
+
+  const name = prompt("Exercise name:", item.name);
+  if (name === null) return;
+
+  const minutes = prompt("Minutes:", item.minutes);
+  if (minutes === null) return;
+
+  const burned = prompt("Estimated calories burned:", item.burned);
+  if (burned === null) return;
+
+  item.name = name.trim() || item.name;
+  item.minutes = numberValue(minutes);
+  item.burned = numberValue(burned);
+
+  saveData();
+  render();
+}
+
+function deleteExercise(id) {
+  if (!confirm("Delete this exercise entry?")) return;
+
+  data.exercises = data.exercises.filter(item => item.id !== id);
+
+  saveData();
+  render();
+}
+
+// ------------------------------
+// WATER
+// ------------------------------
+
+function renderWater() {
+  const container = document.getElementById("waterList");
+
+  if (!container) return;
+
+  const entries = data.water
+    .filter(item => item.date === today())
+    .sort((a, b) => b.createdAt - a.createdAt);
+
+  if (!entries.length) {
+    container.innerHTML = "<p>No water entries yet today.</p>";
+    return;
+  }
+
+  container.innerHTML = entries.map(item => `
+    <div class="entry">
+      <div>
+        <strong>${item.amount} oz</strong>
+        <small>${new Date(item.createdAt).toLocaleTimeString([], {
+          hour: "numeric",
+          minute: "2-digit"
+        })}</small>
+      </div>
+
+      <div class="entry-actions">
+        <button type="button"
+          onclick="Tracker.editWater('${item.id}')">Edit</button>
+        <button type="button"
+          onclick="Tracker.deleteWater('${item.id}')">Delete</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+function addWater(amount) {
+  amount = numberValue(amount);
+
+  if (amount <= 0) return;
+
+  data.water.push({
+    id: makeId(),
+    date: today(),
+    createdAt: Date.now(),
+    amount
+  });
+
+  saveData();
+  render();
+}
+
+function addCustomWater(event) {
+  event.preventDefault();
+
+  const input = document.getElementById("customWater");
+  const amount = numberValue(input.value);
+
+  if (amount <= 0) {
+    alert("Enter a water amount greater than zero.");
+    return;
+  }
+
+  addWater(amount);
+  event.target.reset();
+}
+
+function editWater(id) {
+  const item = data.water.find(entry => entry.id === id);
+
+  if (!item) return;
+
+  const amount = prompt("Water amount in ounces:", item.amount);
+  if (amount === null) return;
+
+  if (numberValue(amount) <= 0) {
+    alert("Enter an amount greater than zero.");
+    return;
+  }
+
+  item.amount = numberValue(amount);
+
+  saveData();
+  render();
+}
+
+function deleteWater(id) {
+  if (!confirm("Delete this water entry?")) return;
+
+  data.water = data.water.filter(item => item.id !== id);
+
+  saveData();
+  render();
+}
+
+// ------------------------------
+// WEIGHT
+// ------------------------------
+
+function renderWeights() {
+  const container = document.getElementById("weightList");
+
+  if (!container) return;
+
+  const entries = [...data.weights].sort(
+    (a, b) => b.date.localeCompare(a.date)
+  );
+
+  if (!entries.length) {
+    container.innerHTML = "<p>No weigh-ins recorded yet.</p>";
+    return;
+  }
+
+  container.innerHTML = entries.map(item => `
+    <div class="entry">
+      <div>
+        <strong>${item.weight.toFixed(1)} lb</strong>
+        <small>${formatDate(item.date)}</small>
+      </div>
+
+      <div class="entry-actions">
+        <button type="button"
+          onclick="Tracker.editWeight('${item.id}')">Edit</button>
+        <button type="button"
+          onclick="Tracker.deleteWeight('${item.id}')">Delete</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+function addWeight(event) {
+  event.preventDefault();
+
+  const weight = numberValue(
+    document.getElementById("weightInput").value
+  );
+
+  if (weight <= 0) {
+    alert("Please enter a valid weight.");
+    return;
+  }
+
+  data.weights.push({
+    id: makeId(),
+    date: today(),
+    createdAt: Date.now(),
+    weight
+  });
+
+  saveData();
+
+  event.target.reset();
+  render();
+}
+
+function editWeight(id) {
+  const item = data.weights.find(entry => entry.id === id);
+
+  if (!item) return;
+
+  const weight = prompt("Weight in pounds:", item.weight);
+  if (weight === null) return;
+
+  if (numberValue(weight) <= 0) {
+    alert("Please enter a valid weight.");
+    return;
+  }
+
+  item.weight = numberValue(weight);
+
+  saveData();
+  render();
+}
+
+function deleteWeight(id) {
+  if (!confirm("Delete this weigh-in?")) return;
+
+  data.weights = data.weights.filter(item => item.id !== id);
+
+  saveData();
+  render();
+}
+
+// ------------------------------
+// PROGRESS
+// ------------------------------
+
+function renderProgress() {
+  const container = document.getElementById("progressDetails");
+
+  if (!container) return;
+
+  const startingWeight = numberValue(data.goals.startingWeight);
+  const currentWeight = getLatestWeight();
+  const goalWeight = numberValue(data.goals.goalWeight);
+
+  const lost = startingWeight - currentWeight;
+  const remaining = currentWeight - goalWeight;
+
+  const totalToLose = startingWeight - goalWeight;
+
+  const progress = totalToLose > 0
+    ? Math.max(0, Math.min(100, lost / totalToLose * 100))
+    : 0;
+
+  const lastSevenDays = [];
+
+  for (let i = 6; i >= 0; i--) {
+    const date = new Date();
+    date.setDate(date.getDate() - i);
+
+    const dateString = [
+      date.getFullYear(),
+      String(date.getMonth() + 1).padStart(2, "0"),
+      String(date.getDate()).padStart(2, "0")
+    ].join("-");
+
+    lastSevenDays.push({
+      date: dateString,
+      totals: getDailyTotals(dateString)
+    });
+  }
+
+  container.innerHTML = `
+    <div class="card">
+      <h3>Weight Progress</h3>
+
+      <p>Starting weight: ${startingWeight.toFixed(1)} lb</p>
+      <p>Current weight: ${currentWeight.toFixed(1)} lb</p>
+      <p>Goal weight: ${goalWeight.toFixed(1)} lb</p>
+
+      <p>
+        ${lost >= 0
+          ? `${lost.toFixed(1)} lb lost`
+          : `${Math.abs(lost).toFixed(1)} lb above starting weight`}
+      </p>
+
+      <div class="progress-track">
+        <div class="progress-fill" style="width:${progress}%"></div>
+      </div>
+
+      <p>${progress.toFixed(1)}% of your weight-loss goal completed</p>
+
+      <p>
+        ${remaining > 0
+          ? `${remaining.toFixed(1)} lb to goal`
+          : "You have reached or passed your goal weight!"}
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>Last 7 Days</h3>
+
+      ${lastSevenDays.map(day => `
+        <div class="entry">
+          <div>
+            <strong>${formatDate(day.date)}</strong>
+            <p>${Math.round(day.totals.calories)} calories</p>
+            <small>
+              ${day.totals.protein.toFixed(1)}g protein ·
+              ${day.totals.water} oz water ·
+              ${day.totals.exercise} exercise minutes
+            </small>
+          </div>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+// ------------------------------
+// NAVIGATION
+// ------------------------------
+
+function showScreen(screenName) {
+  document.querySelectorAll(".screen").forEach(screen => {
+    screen.classList.remove("active");
+  });
+
+  const selected = document.getElementById(screenName);
+
+  if (selected) {
+    selected.classList.add("active");
+  }
+
+  document.querySelectorAll("[data-screen]").forEach(button => {
+    button.classList.toggle(
+      "active",
+      button.dataset.screen === screenName
+    );
+  });
+
+  window.scrollTo(0, 0);
+}
+
+// ------------------------------
+// RENDER EVERYTHING
+// ------------------------------
+
+function render() {
+  renderDashboard();
+  renderFoods();
+  renderExercises();
+  renderWater();
+  renderWeights();
+  renderProgress();
+}
+
+// ------------------------------
+// CONNECT FORMS AND BUTTONS
+// ------------------------------
+
+function connectForms() {
+  const foodForm = document.getElementById("foodForm");
+  const exerciseForm = document.getElementById("exerciseForm");
+  const waterForm = document.getElementById("customWaterForm");
+  const weightForm = document.getElementById("weightForm");
+
+  if (foodForm) {
+    foodForm.addEventListener("submit", addFood);
+  }
+
+  if (exerciseForm) {
+    exerciseForm.addEventListener("submit", addExercise);
+  }
+
+  if (waterForm) {
+    waterForm.addEventListener("submit", addCustomWater);
+  }
+
+  if (weightForm) {
+    weightForm.addEventListener("submit", addWeight);
+  }
+
+  document.querySelectorAll("[data-water]").forEach(button => {
+    button.addEventListener("click", () => {
+      addWater(button.dataset.water);
+    });
+  });
+
+  document.querySelectorAll("[data-screen]").forEach(button => {
+    button.addEventListener("click", () => {
+      showScreen(button.dataset.screen);
+    });
+  });
+}
+
+// ------------------------------
+// PUBLIC FUNCTIONS
+// ------------------------------
+
+window.Tracker = {
+  addFood,
+  editFood,
+  deleteFood,
+  addExercise,
+  editExercise,
+  deleteExercise,
+  addWater,
+  editWater,
+  deleteWater,
+  addWeight,
+  editWeight,
+  deleteWeight,
+  showScreen,
+  render,
+  startFoodScanner,
+  stopFoodScanner
+};
+
+// ------------------------------
+// START APP
+// ------------------------------
+
+document.addEventListener("DOMContentLoaded", () => {
+  connectForms();
+  initializeFoodScanner();
+  render();
+
+  if ("serviceWorker" in navigator && window.location.protocol === "https:") {
+    navigator.serviceWorker.register("./service-worker.js")
+      .catch(error => {
+        console.warn("Service worker registration failed:", error);
+      });
+  }
+});
