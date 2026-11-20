@@ -1,1 +1,195 @@
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#d9c7b8">
+  <meta name="description" content="Personal health and fitness tracker">
+  <title>My Health Tracker</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="manifest" href="manifest.json">
+</head>
+<body>
+
+<header class="app-header">
+  <div>
+    <p class="eyebrow">YOUR DAILY WELLNESS</p>
+    <h1>My Health Tracker</h1>
+  </div>
+  <div class="date-display" id="todayDate"></div>
+</header>
+
+<main>
+
+<section id="dashboard" class="screen active">
+  <h2>Today's Overview</h2>
+
+  <div class="dashboard-grid">
+    <article class="card">
+      <h3>Calories</h3>
+      <p class="big-number"><span data-total="calories">0</span></p>
+      <p>of 1,500 kcal</p>
+      <div class="progress-track"><div class="progress-fill" data-progress="caloriePercent"></div></div>
+      <p><span data-remaining="calories">1500</span> remaining</p>
+    </article>
+
+    <article class="card">
+      <h3>Protein</h3>
+      <p class="big-number"><span data-total="protein">0</span> g</p>
+      <p>Goal: 120 g</p>
+      <div class="progress-track"><div class="progress-fill" data-progress="proteinPercent"></div></div>
+      <p><span data-remaining="protein">120</span> g remaining</p>
+    </article>
+
+    <article class="card">
+      <h3>Water</h3>
+      <p class="big-number"><span data-total="water">0</span> oz</p>
+      <p>Goal: 80 oz</p>
+      <div class="progress-track"><div class="progress-fill" data-progress="waterPercent"></div></div>
+      <p><span data-remaining="water">80</span> oz remaining</p>
+    </article>
+
+    <article class="card">
+      <h3>Exercise</h3>
+      <p class="big-number"><span data-total="exerciseMinutes">0</span></p>
+      <p>Active minutes today</p>
+    </article>
+  </div>
+
+  <article class="card">
+    <h3>Weight</h3>
+    <p class="big-number"><span data-weight-current>150</span> lbs</p>
+    <p>Goal: 130 lbs</p>
+  </article>
+
+  <article class="card">
+    <h3>Fasting Schedule</h3>
+    <p>Eating window: 11 AM – 7 PM</p>
+    <p data-fasting-status>Loading...</p>
+  </article>
+</section>
+
+<section id="nutrition" class="screen">
+  <h2>Nutrition Tracker</h2>
+  <p>Track your daily food and nutrition.</p>
+
+  <form id="foodForm" class="card">
+    <label>Food name<input id="foodName" required></label>
+    <label>Brand<input id="foodBrand"></label>
+    <label>Meal
+      <select id="foodMeal">
+        <option>Breakfast</option>
+        <option>Lunch</option>
+        <option>Dinner</option>
+        <option>Snack</option>
+      </select>
+    </label>
+    <label>Serving size<input id="foodServing" value="1 serving"></label>
+    <label>Calories<input id="foodCalories" type="number" min="0" required></label>
+    <label>Protein (g)<input id="foodProtein" type="number" min="0" step="0.1" required></label>
+    <label>Carbs (g)<input id="foodCarbs" type="number" min="0" step="0.1"></label>
+    <label>Fat (g)<input id="foodFat" type="number" min="0" step="0.1"></label>
+    <button type="submit">Add Food</button>
+  </form>
+
+  <div id="foodList"></div>
+</section>
+
+<section id="exercise" class="screen">
+  <h2>Exercise Tracker</h2>
+
+  <form id="exerciseForm" class="card">
+    <label>Exercise name<input id="exerciseName" required placeholder="Walking pad"></label>
+    <label>Type
+      <select id="exerciseType">
+        <option>Cardio</option>
+        <option>Strength</option>
+        <option>Walking</option>
+        <option>Custom</option>
+      </select>
+    </label>
+    <label>Duration (minutes)<input id="exerciseMinutes" type="number" min="1" required></label>
+    <label>Estimated calories burned<input id="exerciseBurned" type="number" min="0"></label>
+    <label>Weight used (lbs)<input id="exerciseWeight" type="number" min="0"></label>
+    <label>Sets<input id="exerciseSets" type="number" min="0"></label>
+    <label>Reps<input id="exerciseReps" type="number" min="0"></label>
+    <button type="submit">Save Exercise</button>
+  </form>
+
+  <div id="exerciseList"></div>
+</section>
+
+<section id="water" class="screen">
+  <h2>Water Tracker</h2>
+  <article class="card">
+    <p class="big-number"><span data-total="water">0</span> oz</p>
+    <p>Daily goal: 80 oz</p>
+    <div class="progress-track"><div class="progress-fill" data-progress="waterPercent"></div></div>
+    <div class="water-buttons">
+      <button type="button" data-water="8">+8 oz</button>
+      <button type="button" data-water="12">+12 oz</button>
+      <button type="button" data-water="16">+16 oz</button>
+      <button type="button" data-water="24">+24 oz</button>
+    </div>
+    <form id="customWaterForm">
+      <label>Custom amount (oz)<input id="customWater" type="number" min="1" required></label>
+      <button type="submit">Add Water</button>
+    </form>
+  </article>
+  <div id="waterList"></div>
+</section>
+
+<section id="weight" class="screen">
+  <h2>Weight Tracker</h2>
+  <article class="card">
+    <p>Starting weight: 150 lbs</p>
+    <p>Goal weight: 130 lbs</p>
+    <p>Current weight: <strong><span data-weight-current>150</span> lbs</strong></p>
+  </article>
+
+  <form id="weightForm" class="card">
+    <label>Today's weight (lbs)<input id="weightInput" type="number" min="1" step="0.1" required></label>
+    <button type="submit">Save Weight</button>
+  </form>
+
+  <div id="weightList"></div>
+</section>
+
+<section id="progress" class="screen">
+  <h2>Your Progress</h2>
+  <div class="dashboard-grid">
+    <article class="card">
+      <h3>Calories today</h3>
+      <p class="big-number" data-total="calories">0</p>
+    </article>
+    <article class="card">
+      <h3>Protein today</h3>
+      <p class="big-number"><span data-total="protein">0</span> g</p>
+    </article>
+    <article class="card">
+      <h3>Water today</h3>
+      <p class="big-number"><span data-total="water">0</span> oz</p>
+    </article>
+    <article class="card">
+      <h3>Exercise today</h3>
+      <p class="big-number"><span data-total="exerciseMinutes">0</span> min</p>
+    </article>
+  </div>
+  <div id="progressDetails" class="card"></div>
+</section>
+
+</main>
+
+<nav class="bottom-nav">
+  <button type="button" data-screen="dashboard">Home</button>
+  <button type="button" data-screen="nutrition">Food</button>
+  <button type="button" data-screen="exercise">Exercise</button>
+  <button type="button" data-screen="water">Water</button>
+  <button type="button" data-screen="weight">Weight</button>
+  <button type="button" data-screen="progress">Progress</button>
+</nav>
+
+<script src="app.js"></script>
+</body>
+</html>
